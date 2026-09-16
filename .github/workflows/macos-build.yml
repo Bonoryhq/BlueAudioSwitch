@@ -1,0 +1,28 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'macos/**'
+      - '.github/workflows/macos-build.yml'
+  pull_request:
+    paths:
+      - 'macos/**'
+      - '.github/workflows/macos-build.yml'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build release
+        run: swift build --package-path macos -c release
+
+      - name: Smoke test
+        run: macos/.build/release/blueaudioswitch-mac --version
