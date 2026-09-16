@@ -197,7 +197,6 @@ private final class HS5HIDMonitor {
         IOHIDManagerRegisterInputReportCallback(manager, { context, result, _, _, reportID, report, reportLength in
             guard result == kIOReturnSuccess,
                   let context,
-                  let report,
                   reportLength > 0 else { return }
 
             let monitor = Unmanaged<HS5HIDMonitor>.fromOpaque(context).takeUnretainedValue()
@@ -394,14 +393,14 @@ private final class AudioSwitchController {
     }
 }
 
-let args = Set(CommandLine.arguments.dropFirst())
+private let args = Set(CommandLine.arguments.dropFirst())
 
 if args.contains("--version") {
     print("BlueAudioSwitch macOS \(appVersion)")
     exit(0)
 }
 
-let controller = AudioSwitchController()
+private let controller = AudioSwitchController()
 
 if args.contains("--list") {
     controller.listDevices()
