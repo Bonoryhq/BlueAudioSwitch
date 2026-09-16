@@ -24,6 +24,8 @@ The DP-HS-1015 USB receiver never disappears from Windows. Its playback endpoint
 
 BlueAudioSwitch HS5 listens to the receiver's own link-state report instead. Turn the headset on and Windows selects `Speakers (DP-HS-1015)`. Turn it off and the previous output comes back.
 
+The HS5 support is an addition to the original BlueAudioSwitch behavior, not a replacement for it. The app also watches classic Bluetooth audio devices, periodically asks disconnected paired devices to reconnect, and moves Windows audio to the device that connected most recently. When several Bluetooth profiles exist, it prefers the normal Stereo/A2DP playback endpoint over the Hands-Free call-quality endpoint.
+
 No polling by sound playback, no firmware changes, and no permanent USB capture driver.
 
 <p align="center">
@@ -35,8 +37,11 @@ No polling by sound playback, no firmware changes, and no permanent USB capture 
 - Detects the real HS5 wireless link while the receiver remains plugged in.
 - Switches all three Windows audio roles to the DP-HS-1015 output.
 - Restores the output that was active before the headset connected.
-- Keeps the original BlueAudioSwitch Bluetooth reconnect and “last connected wins” behavior.
+- Automatically requests reconnection for paired Bluetooth audio devices that are currently disconnected.
+- Detects physical Bluetooth connection edges and gives priority to the device that connected last.
+- Switches all three Windows audio roles when the winning Bluetooth device's active playback endpoint appears.
 - Prefers Stereo/A2DP over Hands-Free audio for Bluetooth devices.
+- Restores the previous non-Bluetooth output after the last Bluetooth audio device disconnects.
 - Runs in the background and starts with the current Windows user.
 - Uses only built-in Windows APIs. There is no network access or telemetry.
 
@@ -114,4 +119,3 @@ BlueAudioSwitch reads local endpoint state and one HID input report. It does not
 ## Credits
 
 BlueAudioSwitch is distributed under the MIT License. The original copyright notice by Wihred is preserved in [LICENSE](LICENSE).
-
