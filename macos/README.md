@@ -36,9 +36,50 @@ When the HID state is known, the DP-HS-1015 Core Audio endpoint is considered av
 ## Requirements
 
 - macOS 13 or newer.
-- For building from source: Apple Command Line Tools / Swift 5.9 or newer.
+- The release ZIP contains a **universal binary** for Apple Silicon (`arm64`) and Intel (`x86_64`).
+- Swift / Xcode are only required when building from source.
 
-## Quick test
+## Install from release
+
+1. Download `BlueAudioSwitch-macOS-v0.3.0.zip` from GitHub Releases.
+2. Extract it.
+3. In Terminal, open the extracted folder and run:
+
+```bash
+chmod +x install.sh uninstall.sh
+./install.sh
+```
+
+The release installer uses the bundled universal binary; it does not compile anything locally.
+
+Installed binary:
+
+```text
+~/Library/Application Support/BlueAudioSwitch/blueaudioswitch-mac
+```
+
+Autostart:
+
+```text
+~/Library/LaunchAgents/io.bonory.blueaudioswitch.plist
+```
+
+Logs:
+
+```text
+~/Library/Logs/BlueAudioSwitch/BlueAudioSwitch.log
+~/Library/Logs/BlueAudioSwitch/BlueAudioSwitch.error.log
+```
+
+List detected output devices:
+
+```bash
+"$HOME/Library/Application Support/BlueAudioSwitch/blueaudioswitch-mac" --list
+```
+
+## Build / test from source
+
+Requires Apple Command Line Tools / Swift 5.9 or newer.
 
 ```bash
 cd macos
@@ -52,33 +93,12 @@ cd macos
 swift run blueaudioswitch-mac
 ```
 
-Then connect/disconnect a Bluetooth audio device and watch the log output.
-
-## Install
+Source installation uses the same script. If no bundled binary is present, `install.sh` builds a release binary locally:
 
 ```bash
 cd macos
 chmod +x install.sh uninstall.sh
 ./install.sh
-```
-
-The installer builds a release binary and installs it to:
-
-```text
-~/Library/Application Support/BlueAudioSwitch/blueaudioswitch-mac
-```
-
-Autostart is provided by:
-
-```text
-~/Library/LaunchAgents/io.bonory.blueaudioswitch.plist
-```
-
-Logs:
-
-```text
-~/Library/Logs/BlueAudioSwitch/BlueAudioSwitch.log
-~/Library/Logs/BlueAudioSwitch/BlueAudioSwitch.error.log
 ```
 
 ## Uninstall
@@ -92,7 +112,7 @@ cd macos
 
 ### Generic Bluetooth / AirPlay / USB detection
 
-The generic macOS implementation follows Core Audio device availability. For normal Bluetooth devices this maps naturally to the audio endpoint appearing and disappearing.
+The generic macOS implementation follows Core Audio device availability. For normal Bluetooth devices this maps naturally to the audio endpoint becoming available/unavailable.
 
 ### Proprietary 2.4 GHz dongles
 
