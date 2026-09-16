@@ -1,4 +1,5 @@
 // swift-tools-version: 5.9
+// BlueAudioSwitch native macOS package.
 import PackageDescription
 
 let package = Package(
