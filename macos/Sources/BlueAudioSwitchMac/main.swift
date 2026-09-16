@@ -283,6 +283,8 @@ private final class AudioSwitchController {
         let devices = audio.outputDevices()
         let byUID = Dictionary(uniqueKeysWithValues: devices.map { ($0.uid, $0) })
         let availableUIDs = Set(devices.map(\.uid))
+        let removedUIDs = previousAvailableUIDs.subtracting(availableUIDs)
+        let previousDefaultDisappeared = lastDefaultUID.map { removedUIDs.contains($0) } ?? false
 
         // A CoreAudio endpoint appearing is the best public signal for a normal
         // Bluetooth/AirPlay/USB output becoming available on macOS.
@@ -297,7 +299,12 @@ private final class AudioSwitchController {
 
         let defaultDevice = audio.defaultOutputDeviceID().flatMap { id in devices.first(where: { $0.id == id }) }
 
-        if let defaultDevice, defaultDevice.uid != lastDefaultUID {
+        // When Core Audio auto-falls back because a device vanished, do not treat
+        // that automatic change as a manual user selection. We still want our
+        // remembered last-connected external priority to decide the fallback.
+        if !previousDefaultDisappeared,
+           let defaultDevice,
+           defaultDevice.uid != lastDefaultUID {
             if defaultDevice.uid != lastProgrammaticUID {
                 markConnected(defaultDevice)
                 log("Default changed outside BlueAudioSwitch: \(defaultDevice.name)")
@@ -308,6 +315,8 @@ private final class AudioSwitchController {
 
         if let newestAddedExternal {
             switchTo(newestAddedExternal, reason: "became available")
+        } else if previousDefaultDisappeared {
+            selectFallback(from: devices, reason: "previous output disappeared")
         } else {
             let currentIsLogicallyAvailable: Bool
             if let defaultDevice {
