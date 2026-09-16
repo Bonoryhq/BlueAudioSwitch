@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 — 2026-09-16
+
+- Added the first native macOS implementation in Swift.
+- Added Core Audio output discovery and default-output switching on macOS.
+- Added last-available external-device priority and built-in Mac speaker fallback.
+- Added support for Bluetooth, Bluetooth LE, USB, AirPlay, HDMI, DisplayPort, Thunderbolt and FireWire Core Audio outputs.
+- Added the Dark Project HS5 / DP-HS-1015 HID link-state profile on macOS.
+- Added a LaunchAgent installer/uninstaller for background startup on macOS.
+- Added universal macOS builds for both Apple Silicon (`arm64`) and Intel (`x86_64`).
+- Added macOS CI on GitHub Actions with native build and smoke-test validation.
+- Reframed BlueAudioSwitch as a cross-platform automatic audio switching project, with HS5 as the first proprietary dongle profile rather than the whole product.
+
 ## 0.2.1 — 2026-09-16
 
 - Fixed HS5 disconnect fallback when the previously used Bluetooth device has already disconnected.
