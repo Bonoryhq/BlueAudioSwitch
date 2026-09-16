@@ -69,6 +69,20 @@ Input report ID: 55
 
 Other Bluetooth audio devices use the general BlueAudioSwitch logic. Other proprietary 2.4 GHz receivers are not assumed compatible with the HS5 HID integration unless their protocol is verified separately.
 
+## Future / roadmap
+
+The long-term goal is to make proprietary wireless audio dongles a first-class extension point instead of handling each model directly in the core logic.
+
+Planned direction:
+
+- **Dongle profiles** — device-specific profiles identified by USB `VID/PID` plus a small parser for the relevant HID/vendor report.
+- **Generic dongle engine** — the main audio-switching logic stays device-agnostic, while profiles only answer one question: is the wireless audio link really connected?
+- **Learning mode** — capture several headset ON/OFF cycles and compare HID reports to help discover which byte or bit represents link state on an unknown dongle.
+- **Community profiles** — allow new dongle definitions to be added without changing the core application.
+- **HS5 as the reference profile** — `VID_10D6&PID_B011` remains the first verified implementation and a template for adding other receivers.
+
+The goal is not to assume that every USB audio dongle uses the same protocol. Instead, BlueAudioSwitch should provide one universal switching engine with small adapters for proprietary receiver protocols.
+
 ## Install
 
 1. Download the ZIP from [Releases](../../releases/latest).
