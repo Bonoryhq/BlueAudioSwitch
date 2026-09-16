@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/hero.png" alt="USB receiver switching audio to a wireless headset" width="100%">
+  <img src="assets/hero.png" alt="BlueAudioSwitch automatically switching Windows audio outputs" width="100%">
 </p>
 
-<h1 align="center">BlueAudioSwitch HS5</h1>
+<h1 align="center">BlueAudioSwitch</h1>
 
 <p align="center">
-  Windows audio switching that follows the actual radio link of the Dark Project HS5,<br>
-  not the permanently connected USB receiver.
+  Automatic Windows audio output switching based on what is actually connected.<br>
+  Bluetooth devices, built-in speakers, and special support for the Dark Project HS5 2.4 GHz receiver.
 </p>
 
 <p align="center">
@@ -18,36 +18,47 @@
 
 <p align="center"><a href="README.ru.md">Русская версия</a></p>
 
-## The problem
+## What it is
 
-The DP-HS-1015 USB receiver never disappears from Windows. Its playback endpoint stays active even when the headset is powered off, so ordinary device-presence checks cannot tell whether audio will actually reach the headset.
+BlueAudioSwitch is a small Windows utility that keeps the default audio output in sync with the devices you are actually using.
 
-BlueAudioSwitch HS5 listens to the receiver's own link-state report instead. Turn the headset on and Windows selects `Speakers (DP-HS-1015)`. Turn it off and the previous output comes back.
+Instead of manually opening the Windows sound menu every time a speaker, headset, or Bluetooth device connects or disconnects, BlueAudioSwitch watches device state and switches the default output automatically.
 
-The HS5 support is an addition to the original BlueAudioSwitch behavior, not a replacement for it. The app also watches classic Bluetooth audio devices, periodically asks disconnected paired devices to reconnect, and moves Windows audio to the device that connected most recently. When several Bluetooth profiles exist, it prefers the normal Stereo/A2DP playback endpoint over the Hands-Free call-quality endpoint.
+The main rule is simple: **the most recently connected available audio device wins**. If that device disappears, BlueAudioSwitch falls back to another active device and ultimately to the laptop's built-in speakers when no external output remains.
 
-No polling by sound playback, no firmware changes, and no permanent USB capture driver.
+## What it does
+
+- Watches Bluetooth audio devices and physical Bluetooth connection events.
+- Gives priority to the device that connected most recently.
+- Automatically requests reconnection for paired Bluetooth audio devices that are currently disconnected.
+- Waits for the real playback endpoint to become active before switching.
+- Prefers Stereo/A2DP playback over Hands-Free call-quality profiles.
+- Switches all three Windows audio roles: Console, Multimedia, and Communications.
+- Returns to another active output when the current device disconnects.
+- Falls back to the laptop's built-in speakers when no external audio device remains active.
+- Runs in the background and starts with the current Windows user.
+- Uses built-in Windows APIs only. There is no telemetry or network access.
+
+## Dark Project HS5 / DP-HS-1015 support
+
+Dark Project HS5 is a special case because its 2.4 GHz USB receiver stays visible to Windows even when the headset itself is powered off. Windows therefore cannot tell from the audio endpoint alone whether the headset is actually reachable.
+
+BlueAudioSwitch adds dedicated support for this receiver by listening to its real wireless link-state HID report:
+
+- HS5 turns on and establishes the 2.4 GHz link -> audio switches to `Speakers (DP-HS-1015)`.
+- HS5 turns off -> BlueAudioSwitch leaves the permanently present dongle and returns to the most appropriate active output.
+- If the previous Bluetooth device is still connected, it can become active again.
+- If no external device remains, audio falls back to the laptop's built-in speakers.
+
+This HS5 integration is an extra device-specific capability on top of the general automatic audio-switching behavior.
 
 <p align="center">
   <img src="assets/how-it-works.svg" alt="How the HS5 connection report controls Windows audio" width="920">
 </p>
 
-## What it does
+## Supported HS5 receiver
 
-- Detects the real HS5 wireless link while the receiver remains plugged in.
-- Switches all three Windows audio roles to the DP-HS-1015 output.
-- Restores the output that was active before the headset connected.
-- Automatically requests reconnection for paired Bluetooth audio devices that are currently disconnected.
-- Detects physical Bluetooth connection edges and gives priority to the device that connected last.
-- Switches all three Windows audio roles when the winning Bluetooth device's active playback endpoint appears.
-- Prefers Stereo/A2DP over Hands-Free audio for Bluetooth devices.
-- Restores the previous non-Bluetooth output after the last Bluetooth audio device disconnects.
-- Runs in the background and starts with the current Windows user.
-- Uses only built-in Windows APIs. There is no network access or telemetry.
-
-## Supported receiver
-
-This build targets the receiver shipped with Dark Project HS5 / DP-HS-1015:
+The dedicated HS5 integration currently targets the receiver shipped with Dark Project HS5 / DP-HS-1015:
 
 ```text
 USB VID: 10D6
@@ -56,13 +67,13 @@ HID usage page: FF90
 Input report ID: 55
 ```
 
-Other headsets may use the same enclosure or USB audio chip but a different HID protocol. They are not assumed compatible.
+Other Bluetooth audio devices use the general BlueAudioSwitch logic. Other proprietary 2.4 GHz receivers are not assumed compatible with the HS5 HID integration unless their protocol is verified separately.
 
 ## Install
 
 1. Download the ZIP from [Releases](../../releases/latest).
 2. Extract it to a normal folder.
-3. Run `Test.cmd` if you want to watch it before installation.
+3. Run `Test.cmd` if you want to watch the behavior before installation.
 4. Run `Install.cmd`.
 
 The script is copied to:
@@ -71,50 +82,53 @@ The script is copied to:
 %LOCALAPPDATA%\BlueAudioSwitch
 ```
 
-It then starts through the current user's Windows startup entry. Administrator rights are not required.
+It then starts automatically with the current Windows user. Administrator rights are not required.
 
 ## Uninstall
 
 Run `Uninstall.cmd`. It removes the startup entry and the installed copy.
 
-## The receiver signal
+## HS5 receiver signal
 
-The receiver exposes a vendor HID collection and sends one 64-byte input report whenever the 2.4 GHz link changes:
+The DP-HS-1015 receiver exposes a vendor HID collection and sends a 64-byte input report whenever the 2.4 GHz wireless link changes:
 
 ```text
 55 6B 00 ... 44 50 2D 48 53 2D 31 30 31 35  # connected
 55 6B 01 ... 44 50 2D 48 53 2D 31 30 31 35  # disconnected
 ```
 
-Byte 2 is the state: `00` means connected and `01` means disconnected. Bytes 9–18 contain `DP-HS-1015` in ASCII. The app only reads this collection; it does not send vendor commands.
+Byte 2 is the state: `00` means connected and `01` means disconnected. Bytes 9-18 contain `DP-HS-1015` in ASCII. BlueAudioSwitch only reads this collection; it does not send vendor commands or modify firmware.
 
 The capture and validation notes are in [docs/protocol.md](docs/protocol.md).
 
 ## Troubleshooting
 
-### The headset does not trigger a switch
+### A Bluetooth device does not become the default output
 
-Check that Device Manager shows `DP-HS-1015` and that its USB ID is `VID_10D6&PID_B011`. Then inspect:
+Check that the device is paired and connected in Windows. Bluetooth drivers do not all expose the same reconnect behavior, so some OEM drivers may ignore the reconnect request even though manual connection still works.
+
+The log is stored here:
 
 ```text
 %LOCALAPPDATA%\BlueAudioSwitch\BlueAudioSwitch.log
 ```
 
-A normal power cycle produces these lines:
+### HS5 does not trigger a switch
+
+Check that Device Manager shows `DP-HS-1015` and that its USB ID is `VID_10D6&PID_B011`.
+
+A normal HS5 power cycle should produce log lines containing:
 
 ```text
-DP-HS-1015 connected (HID 55-6B-00). USB headset selected.
+DP-HS-1015 connected (HID 55-6B-00).
 DP-HS-1015 disconnected (HID 55-6B-01).
-DP-HS-1015 disconnected. Restored previous output.
 ```
-
-### Bluetooth reconnect behaves differently on my PC
-
-Bluetooth drivers do not all expose the same reconnect behavior. The app uses the Windows Bluetooth audio kernel-streaming interface, but an OEM driver may ignore that request. Manual Bluetooth connection still works; HS5 detection is independent of it.
 
 ## Privacy and safety
 
-BlueAudioSwitch reads local endpoint state and one HID input report. It does not record audio, contact the internet, collect analytics, or flash the receiver. See [SECURITY.md](SECURITY.md) for reporting security issues.
+BlueAudioSwitch reads local audio endpoint state, Bluetooth connection state, and the HS5 HID input report when that receiver is present. It does not record audio, contact the internet, collect analytics, flash the receiver, or send unknown vendor commands.
+
+See [SECURITY.md](SECURITY.md) for reporting security issues.
 
 ## Credits
 
