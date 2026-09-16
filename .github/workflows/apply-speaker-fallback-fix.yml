@@ -1,0 +1,160 @@
+name: Apply HS5 speaker fallback fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-speaker-fallback-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch fallback logic
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('BlueAudioSwitch.ps1')
+          text = path.read_text(encoding='utf-8-sig')
+
+          helper_anchor = '''function Get-BtDevices {
+          '''
+
+          helper = r'''function Get-BuiltinSpeakerEndpointId {
+              try {
+                  $candidates = @(
+                      Get-PnpDevice -Class AudioEndpoint -PresentOnly -ErrorAction Stop |
+                      Where-Object {
+                          $_.Status -eq 'OK' -and
+                          $_.InstanceId -match '(?i)^SWD\\MMDEVAPI\\\{0\.0\.0\.' -and
+                          $_.FriendlyName -notmatch '(?i)DP-HS-1015|Bluetooth|HDMI|Display Audio|NVIDIA|AMD High Definition|headphones|headset|наушники'
+                      }
+                  )
+
+                  if ($candidates.Count -eq 0) {
+                      return $null
+                  }
+
+                  $scored = foreach ($endpoint in $candidates) {
+                      $name = [string]$endpoint.FriendlyName
+                      $score = 0
+
+                      if ($name -match '(?i)Speakers|Speaker|Динамики') { $score += 1000 }
+                      if ($name -match '(?i)Realtek|Conexant|SmartAmp|Synaptics|Cirrus') { $score += 200 }
+                      if ($name -match '(?i)USB') { $score -= 150 }
+
+                      [pscustomobject]@{
+                          Endpoint = $endpoint
+                          Score = $score
+                      }
+                  }
+
+                  $best = @($scored | Sort-Object Score -Descending | Select-Object -First 1)[0].Endpoint
+                  if ($null -eq $best) {
+                      return $null
+                  }
+
+                  return ([string]$best.InstanceId).Substring('SWD\MMDEVAPI\'.Length)
+              }
+              catch {
+                  Write-Log ("Built-in speaker discovery failed: " + $_.Exception.Message)
+                  return $null
+              }
+          }
+
+          function Get-BtDevices {
+          '''
+
+          if 'function Get-BuiltinSpeakerEndpointId {' not in text:
+              if helper_anchor not in text:
+                  raise SystemExit('Get-BtDevices anchor not found')
+              text = text.replace(helper_anchor, helper, 1)
+
+          old_block = r'''        else {
+              # No Bluetooth audio remains: restore the previous non-Bluetooth output.
+              if (-not $hs5Connected -and $previousActiveGroups.Count -gt 0 -and $fallbackEndpointId) {
+                  if ([BtAudioNative]::IsEndpointActive($fallbackEndpointId)) {
+                      [void][BtAudioNative]::SetDefaultRenderEndpoint($fallbackEndpointId)
+                      Write-Log "Bluetooth audio disconnected. Restored previous output."
+                  }
+              }
+
+              $defaultNow = [BtAudioNative]::GetDefaultRenderEndpointId()
+              if (-not $hs5Connected -and $defaultNow -and -not $allBtIdsNow.ContainsKey([string]$defaultNow)) {
+                  $fallbackEndpointId = [string]$defaultNow
+              }
+          '''
+
+          new_block = r'''        else {
+              # No Bluetooth audio remains. Keep the existing "last connected wins"
+              # behavior, but never leave audio on the HS5 USB receiver after the
+              # headset itself disconnects. If the remembered fallback is gone,
+              # fall back to the laptop's built-in speakers.
+              if (-not $hs5Connected -and ($hs5DisconnectedThisPass -or $previousActiveGroups.Count -gt 0)) {
+                  $restoredFallback = $false
+
+                  if ($fallbackEndpointId -and
+                      $fallbackEndpointId -ne $hs5EndpointId -and
+                      [BtAudioNative]::IsEndpointActive($fallbackEndpointId)) {
+                      [void][BtAudioNative]::SetDefaultRenderEndpoint($fallbackEndpointId)
+                      Write-Log "External audio disconnected. Restored previous active output."
+                      $restoredFallback = $true
+                  }
+
+                  if (-not $restoredFallback) {
+                      $speakerEndpointId = Get-BuiltinSpeakerEndpointId
+                      if ($speakerEndpointId -and [BtAudioNative]::IsEndpointActive($speakerEndpointId)) {
+                          [void][BtAudioNative]::SetDefaultRenderEndpoint($speakerEndpointId)
+                          $fallbackEndpointId = [string]$speakerEndpointId
+                          Write-Log "No active external audio remains. Switched to built-in speakers."
+                          $restoredFallback = $true
+                      }
+                      else {
+                          Write-Log "No active external audio remains, but built-in speakers were not found."
+                      }
+                  }
+              }
+
+              $defaultNow = [BtAudioNative]::GetDefaultRenderEndpointId()
+              if (-not $hs5Connected -and
+                  $defaultNow -and
+                  $defaultNow -ne $hs5EndpointId -and
+                  -not $allBtIdsNow.ContainsKey([string]$defaultNow)) {
+                  $fallbackEndpointId = [string]$defaultNow
+              }
+          '''
+
+          if old_block not in text:
+              raise SystemExit('Fallback block anchor not found')
+          text = text.replace(old_block, new_block, 1)
+
+          text = text.replace(
+              'Write-Log "Started. v0.2.0 + DP-HS-1015 HID"',
+              'Write-Log "Started. v0.2.1 + DP-HS-1015 HID"',
+              1
+          )
+
+          path.write_text(text, encoding='utf-8-sig')
+
+      - name: Sanity checks
+        shell: bash
+        run: |
+          grep -q 'function Get-BuiltinSpeakerEndpointId' BlueAudioSwitch.ps1
+          grep -q 'No active external audio remains. Switched to built-in speakers.' BlueAudioSwitch.ps1
+          grep -q 'v0.2.1 + DP-HS-1015 HID' BlueAudioSwitch.ps1
+          git diff --check
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add BlueAudioSwitch.ps1
+          git commit -m 'fix: fall back to laptop speakers after HS5 disconnect'
+          git push
