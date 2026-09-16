@@ -956,6 +956,7 @@ $hs5NativeCode = @'
 using System;
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
@@ -971,16 +972,44 @@ public sealed class Hs5HidReader : IDisposable
     private readonly int reportLength;
     private readonly ConcurrentQueue<byte[]> reports = new ConcurrentQueue<byte[]>();
     private readonly Thread readerThread;
+    private readonly string renderEndpointId;
+    private readonly MethodInfo getDefaultEndpoint;
+    private readonly MethodInfo setDefaultEndpoint;
+    private readonly MethodInfo isEndpointActive;
     private volatile bool disposed;
 
-    public Hs5HidReader(string path, int reportLength)
+    public bool IsConnected { get; private set; }
+    public bool LastSwitchSucceeded { get; private set; }
+    public string FallbackEndpointId { get; private set; }
+    public DateTime LastReportUtc { get; private set; }
+
+    public Hs5HidReader(string path, int reportLength, string renderEndpointId)
     {
         if (String.IsNullOrWhiteSpace(path))
             throw new ArgumentNullException("path");
         if (reportLength <= 0)
             throw new ArgumentOutOfRangeException("reportLength");
+        if (String.IsNullOrWhiteSpace(renderEndpointId))
+            throw new ArgumentNullException("renderEndpointId");
 
         this.reportLength = reportLength;
+        this.renderEndpointId = renderEndpointId;
+
+        Type audioType = null;
+        foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            audioType = assembly.GetType("BtAudioNative", false);
+            if (audioType != null)
+                break;
+        }
+        if (audioType == null)
+            throw new InvalidOperationException("BtAudioNative type was not found.");
+
+        getDefaultEndpoint = audioType.GetMethod("GetDefaultRenderEndpointId", BindingFlags.Public | BindingFlags.Static);
+        setDefaultEndpoint = audioType.GetMethod("SetDefaultRenderEndpoint", BindingFlags.Public | BindingFlags.Static);
+        isEndpointActive = audioType.GetMethod("IsEndpointActive", BindingFlags.Public | BindingFlags.Static);
+        if (getDefaultEndpoint == null || setDefaultEndpoint == null || isEndpointActive == null)
+            throw new InvalidOperationException("Required audio methods were not found.");
         handle = CreateFile(
             path,
             GENERIC_READ,
@@ -1030,7 +1059,51 @@ public sealed class Hs5HidReader : IDisposable
                 buffer = trimmed;
             }
 
+            HandleLinkState(buffer);
             reports.Enqueue(buffer);
+        }
+    }
+
+    private void HandleLinkState(byte[] report)
+    {
+        if (report == null || report.Length != 64 || report[0] != 0x55 || report[1] != 0x6B)
+            return;
+        if (report[2] != 0x00 && report[2] != 0x01)
+            return;
+
+        LastReportUtc = DateTime.UtcNow;
+
+        try
+        {
+            if (report[2] == 0x00)
+            {
+                string current = getDefaultEndpoint.Invoke(null, null) as string;
+                if (!String.IsNullOrWhiteSpace(current) &&
+                    !String.Equals(current, renderEndpointId, StringComparison.OrdinalIgnoreCase))
+                {
+                    FallbackEndpointId = current;
+                }
+
+                LastSwitchSucceeded = String.Equals(current, renderEndpointId, StringComparison.OrdinalIgnoreCase) ||
+                    (bool)setDefaultEndpoint.Invoke(null, new object[] { renderEndpointId });
+                IsConnected = true;
+            }
+            else
+            {
+                IsConnected = false;
+                LastSwitchSucceeded = false;
+                if (!String.IsNullOrWhiteSpace(FallbackEndpointId) &&
+                    (bool)isEndpointActive.Invoke(null, new object[] { FallbackEndpointId }))
+                {
+                    LastSwitchSucceeded = (bool)setDefaultEndpoint.Invoke(
+                        null,
+                        new object[] { FallbackEndpointId });
+                }
+            }
+        }
+        catch
+        {
+            LastSwitchSucceeded = false;
         }
     }
 
@@ -1424,15 +1497,16 @@ $hs5Reader = $null
 $hs5Connected = $false
 $hs5FallbackEndpointId = $null
 $hs5HidPath = Get-Hs5HidPath
-if ($hs5HidPath) {
+$hs5EndpointId = Get-Hs5RenderEndpointId
+if ($hs5HidPath -and $hs5EndpointId) {
     try {
-        $hs5Reader = [Hs5HidReader]::new($hs5HidPath, 64)
-        Write-Log "DP-HS-1015 HID listener started."
+        $hs5Reader = [Hs5HidReader]::new($hs5HidPath, 64, $hs5EndpointId)
+        Write-Log "DP-HS-1015 immediate HID listener started."
     } catch {
         Write-Log ("DP-HS-1015 HID listener failed: " + $_.Exception.Message)
     }
 } else {
-    Write-Log "DP-HS-1015 FF90 HID collection was not found."
+    Write-Log "DP-HS-1015 HID collection or render endpoint was not found."
 }
 
 $hs5DisconnectedPending = $false
@@ -1459,39 +1533,20 @@ function Process-Hs5Reports {
         }
 
         if ($report[2] -eq 0x00) {
-            $endpointId = Get-Hs5RenderEndpointId
-            if ($endpointId -and [BtAudioNative]::IsEndpointActive($endpointId)) {
-                $defaultBefore = [BtAudioNative]::GetDefaultRenderEndpointId()
-                if ($defaultBefore -and [string]$defaultBefore -ne [string]$endpointId) {
-                    $script:hs5FallbackEndpointId = [string]$defaultBefore
-                }
-
-                if ([string]$defaultBefore -ne [string]$endpointId) {
-                    $switched = [BtAudioNative]::SetDefaultRenderEndpoint($endpointId)
-                } else {
-                    $switched = $true
-                }
-
-                $script:hs5Connected = $true
-                if ($switched) {
-                    Write-Log "DP-HS-1015 connected (HID 55-6B-00). USB headset selected."
-                } else {
-                    Write-Log "DP-HS-1015 connected, but switching to its USB endpoint failed."
-                }
+            $script:hs5Connected = $script:hs5Reader.IsConnected
+            $script:hs5FallbackEndpointId = $script:hs5Reader.FallbackEndpointId
+            if ($script:hs5Reader.LastSwitchSucceeded) {
+                Write-Log "DP-HS-1015 connected (HID 55-6B-00). USB headset selected immediately."
             } else {
-                Write-Log "DP-HS-1015 connected, but its render endpoint was not active."
+                Write-Log "DP-HS-1015 connected, but immediate endpoint switching failed."
             }
         } else {
-            $script:hs5Connected = $false
+            $script:hs5Connected = $script:hs5Reader.IsConnected
+            $script:hs5FallbackEndpointId = $script:hs5Reader.FallbackEndpointId
             $script:hs5DisconnectedPending = $true
             $disconnected = $true
             Write-Log "DP-HS-1015 disconnected (HID 55-6B-01)."
-
-            if (
-                $script:hs5FallbackEndpointId -and
-                [BtAudioNative]::IsEndpointActive($script:hs5FallbackEndpointId)
-            ) {
-                [void][BtAudioNative]::SetDefaultRenderEndpoint($script:hs5FallbackEndpointId)
+            if ($script:hs5Reader.LastSwitchSucceeded) {
                 Write-Log "DP-HS-1015 disconnected. Restored previous output."
             }
         }
@@ -1688,19 +1743,6 @@ while ($true) {
             }
         }
         else {
-            if ($hs5DisconnectedThisPass) {
-                $defaultAfterHs5 = [BtAudioNative]::GetDefaultRenderEndpointId()
-                $hs5EndpointId = Get-Hs5RenderEndpointId
-                if (
-                    $hs5FallbackEndpointId -and
-                    [BtAudioNative]::IsEndpointActive($hs5FallbackEndpointId) -and
-                    [string]$defaultAfterHs5 -eq [string]$hs5EndpointId
-                ) {
-                    [void][BtAudioNative]::SetDefaultRenderEndpoint($hs5FallbackEndpointId)
-                    Write-Log "DP-HS-1015 disconnected. Restored previous output."
-                }
-            }
-
             # No Bluetooth audio remains: restore the previous non-Bluetooth output.
             if (-not $hs5Connected -and $previousActiveGroups.Count -gt 0 -and $fallbackEndpointId) {
                 if ([BtAudioNative]::IsEndpointActive($fallbackEndpointId)) {
