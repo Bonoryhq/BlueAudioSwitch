@@ -1,0 +1,105 @@
+name: Publish BlueAudioSwitch v0.3.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v0.3.0.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build macOS Apple Silicon
+        run: swift build --package-path macos -c release --arch arm64
+
+      - name: Build macOS Intel
+        run: swift build --package-path macos -c release --arch x86_64
+
+      - name: Create and sign macOS universal binary
+        run: |
+          mkdir -p macos/.build/universal
+          lipo -create \
+            macos/.build/arm64-apple-macosx/release/blueaudioswitch-mac \
+            macos/.build/x86_64-apple-macosx/release/blueaudioswitch-mac \
+            -output macos/.build/universal/blueaudioswitch-mac
+          codesign --force --sign - macos/.build/universal/blueaudioswitch-mac
+          lipo -info macos/.build/universal/blueaudioswitch-mac
+          macos/.build/universal/blueaudioswitch-mac --version
+
+      - name: Assemble Windows package
+        run: |
+          WIN=dist/BlueAudioSwitch-Windows-v0.3.0
+          mkdir -p "$WIN/docs" "$WIN/assets"
+          cp BlueAudioSwitch.ps1 ApplyFallbackPatch.ps1 Install.cmd Run.cmd Test.cmd Uninstall.cmd "$WIN/"
+          cp README.md README.ru.md CHANGELOG.md LICENSE SECURITY.md "$WIN/"
+          cp docs/protocol.md "$WIN/docs/"
+          cp assets/how-it-works.svg "$WIN/assets/"
+
+      - name: Assemble macOS package
+        run: |
+          MAC=dist/BlueAudioSwitch-macOS-v0.3.0
+          mkdir -p "$MAC/docs"
+          cp macos/.build/universal/blueaudioswitch-mac "$MAC/blueaudioswitch-mac"
+          cp macos/install.sh macos/uninstall.sh "$MAC/"
+          cp macos/README.md "$MAC/README.md"
+          cp README.ru.md "$MAC/README.ru.md"
+          cp CHANGELOG.md LICENSE SECURITY.md "$MAC/"
+          cp docs/protocol.md "$MAC/docs/"
+          chmod +x "$MAC/blueaudioswitch-mac" "$MAC/install.sh" "$MAC/uninstall.sh"
+
+      - name: Build release archives
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent BlueAudioSwitch-Windows-v0.3.0 ../BlueAudioSwitch-Windows-v0.3.0.zip
+          ditto -c -k --sequesterRsrc --keepParent BlueAudioSwitch-macOS-v0.3.0 ../BlueAudioSwitch-macOS-v0.3.0.zip
+          cd ..
+          shasum -a 256 BlueAudioSwitch-Windows-v0.3.0.zip BlueAudioSwitch-macOS-v0.3.0.zip > SHA256SUMS.txt
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          # BlueAudioSwitch v0.3.0
+
+          First cross-platform release of BlueAudioSwitch.
+
+          ## macOS
+          - Native Swift implementation using Core Audio and IOKit/HID.
+          - Automatic switching to the most recently available external audio output.
+          - Fallback to another external output, then to built-in Mac speakers.
+          - Supports Core Audio outputs such as Bluetooth, Bluetooth LE, USB, AirPlay, HDMI, DisplayPort, Thunderbolt and FireWire.
+          - Dark Project HS5 / DP-HS-1015 real radio-link detection via HID.
+          - Background startup through LaunchAgent.
+          - Universal binary for Apple Silicon and Intel Macs.
+          - No Electron and no menu-bar application required.
+
+          ## Windows
+          - Existing automatic Bluetooth/audio switching behavior is preserved.
+          - Last-connected-device priority remains unchanged.
+          - HS5 HID profile and built-in-speaker fallback from v0.2.1 are included.
+
+          ## Downloads
+          - `BlueAudioSwitch-Windows-v0.3.0.zip` — Windows package.
+          - `BlueAudioSwitch-macOS-v0.3.0.zip` — macOS universal package.
+          - `SHA256SUMS.txt` — SHA-256 checksums.
+
+          The macOS binary is ad-hoc signed and built directly by this repository's GitHub Actions workflow. It is not Apple-notarized yet.
+          EOF
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.3.0 \
+            BlueAudioSwitch-Windows-v0.3.0.zip \
+            BlueAudioSwitch-macOS-v0.3.0.zip \
+            SHA256SUMS.txt \
+            --target "$GITHUB_SHA" \
+            --title "BlueAudioSwitch v0.3.0" \
+            --notes-file release-notes.md
