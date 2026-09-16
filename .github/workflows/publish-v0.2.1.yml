@@ -1,0 +1,48 @@
+name: Publish BlueAudioSwitch HS5 v0.2.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v0.2.1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release archive
+        run: |
+          zip -r BlueAudioSwitch-HS5-v0.2.1.zip . \
+            -x '.git/*' \
+               '.github/*'
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          BlueAudioSwitch HS5 v0.2.1
+
+          Changes:
+          - Fixed HS5 disconnect fallback when the previously used Bluetooth device has already disconnected.
+          - Preserved last-connected-device priority for active Bluetooth audio devices.
+          - Added fallback to the laptop's built-in speakers when no external audio device remains active.
+          - Prevented the permanently present DP-HS-1015 USB receiver from remaining selected after the headset disconnects.
+          - Removed the temporary standalone fallback watchdog; fallback handling is integrated into the main flow.
+
+          Supported receiver: VID_10D6&PID_B011.
+          EOF
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.2.1 \
+            BlueAudioSwitch-HS5-v0.2.1.zip \
+            --target "$GITHUB_SHA" \
+            --title "BlueAudioSwitch HS5 v0.2.1" \
+            --notes-file release-notes.md
