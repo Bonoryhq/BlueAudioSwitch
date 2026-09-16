@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">How BlueAudioSwitch HS5 works</title>
+  <desc id="desc">The USB receiver sends a HID link-state event. BlueAudioSwitch selects the headset on connect and restores the previous output on disconnect.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071426"/>
+      <stop offset="1" stop-color="#101a35"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#818cf8"/>
+    </linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="url(#bg)"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="60" y="58" fill="#e5f7ff" font-size="25" font-weight="700">The receiver stays plugged in. The radio link does not.</text>
+    <text x="60" y="90" fill="#8ca7c2" font-size="17">BlueAudioSwitch listens to the link event instead of trusting USB device presence.</text>
+
+    <rect x="58" y="135" width="290" height="205" rx="20" fill="#0d2038" stroke="#27435f"/>
+    <text x="86" y="176" fill="#90a9bf" font-size="15">HEADSET ON</text>
+    <path d="M126 257c0-54 35-88 78-88s78 34 78 88" fill="none" stroke="url(#cyan)" stroke-width="12" stroke-linecap="round"/>
+    <rect x="105" y="240" width="38" height="68" rx="16" fill="#1d4f73" stroke="#38bdf8"/>
+    <rect x="265" y="240" width="38" height="68" rx="16" fill="#1d4f73" stroke="#818cf8"/>
+    <circle cx="204" cy="275" r="7" fill="#34d399" filter="url(#glow)"/>
+
+    <path d="M365 222h125" stroke="#35d4f0" stroke-width="4" stroke-linecap="round"/>
+    <path d="M474 208l18 14-18 14" fill="none" stroke="#35d4f0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="510" y="135" width="300" height="205" rx="20" fill="#0d2038" stroke="#315179"/>
+    <text x="540" y="176" fill="#90a9bf" font-size="15">HID INPUT REPORT</text>
+    <text x="540" y="238" fill="#eefbff" font-family="Cascadia Mono, Consolas, monospace" font-size="30" font-weight="700">55 6B <tspan fill="#34d399">00</tspan></text>
+    <text x="540" y="282" fill="#eefbff" font-family="Cascadia Mono, Consolas, monospace" font-size="30" font-weight="700">55 6B <tspan fill="#fb7185">01</tspan></text>
+    <text x="540" y="314" fill="#7f9ab5" font-size="14">connected / disconnected</text>
+
+    <path d="M828 222h125" stroke="#818cf8" stroke-width="4" stroke-linecap="round"/>
+    <path d="M937 208l18 14-18 14" fill="none" stroke="#818cf8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <rect x="972" y="135" width="170" height="205" rx="20" fill="#0d2038" stroke="#384c7c"/>
+    <text x="1000" y="176" fill="#90a9bf" font-size="15">WINDOWS AUDIO</text>
+    <path d="M1011 226h28l34-27v86l-34-27h-28z" fill="url(#cyan)"/>
+    <path d="M1086 220c17 15 17 35 0 50M1102 205c31 25 31 55 0 80" fill="none" stroke="#a5b4fc" stroke-width="6" stroke-linecap="round"/>
+    <text x="1000" y="316" fill="#c9d9e8" font-size="14">switch / restore</text>
+  </g>
+</svg>

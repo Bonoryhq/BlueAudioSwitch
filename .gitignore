@@ -1,0 +1,8 @@
+*.log
+*.etl
+*.pcap
+*.pcapng
+*.xml
+Thumbs.db
+.DS_Store
+dist/*.zip
