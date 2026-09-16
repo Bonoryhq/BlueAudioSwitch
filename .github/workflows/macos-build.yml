@@ -21,8 +21,21 @@ jobs:
       - name: Swift version
         run: swift --version
 
-      - name: Build release
-        run: swift build --package-path macos -c release
+      - name: Build Apple Silicon
+        run: swift build --package-path macos -c release --arch arm64
+
+      - name: Build Intel
+        run: swift build --package-path macos -c release --arch x86_64
+
+      - name: Create universal binary
+        run: |
+          mkdir -p macos/.build/universal
+          lipo -create \
+            macos/.build/arm64-apple-macosx/release/blueaudioswitch-mac \
+            macos/.build/x86_64-apple-macosx/release/blueaudioswitch-mac \
+            -output macos/.build/universal/blueaudioswitch-mac
+          lipo -info macos/.build/universal/blueaudioswitch-mac
+          file macos/.build/universal/blueaudioswitch-mac
 
       - name: Smoke test
-        run: macos/.build/release/blueaudioswitch-mac --version
+        run: macos/.build/universal/blueaudioswitch-mac --version
