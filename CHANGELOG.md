@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1 — 2026-09-23
+
+- Fixed Windows HS5 disconnect handling: when the headset radio link goes down but its USB receiver remains present, BlueAudioSwitch now restores the remembered output or selects the built-in speakers.
+- Fixed replacement-startup race: installation and test runs now wait for the prior instance to release the single-instance mutex.
+- Prevented the launcher from terminating its own PowerShell host while stopping older BlueAudioSwitch instances.
+
 ## 0.3.0 — 2026-09-16
 
 - Added the first native macOS implementation in Swift.

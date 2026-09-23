@@ -26,18 +26,33 @@ function Write-Log([string]$Message) {
 
 function Stop-BackgroundCopies([switch]$IncludeLegacy) {
     try {
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        $copies = @(
+            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object {
                 $_.ProcessId -ne $PID -and
                 ($_.Name -ieq "powershell.exe" -or $_.Name -ieq "pwsh.exe") -and
+                $_.CommandLine -notmatch '(?i)(?:^|\s)-Command(?:\s|$)' -and
                 (
-                    $_.CommandLine -match '[\\/]BlueAudioSwitch\.ps1' -or
-                    ($IncludeLegacy -and $_.CommandLine -match '[\\/]BluetoothAudioAuto\.ps1')
+                    $_.CommandLine -match '(?i)(?:^|\s)-File\s+(?:"[^"]*[\\/]BlueAudioSwitch\.ps1"|[^\s]*[\\/]BlueAudioSwitch\.ps1)(?:\s|$)' -or
+                    ($IncludeLegacy -and $_.CommandLine -match '(?i)(?:^|\s)-File\s+(?:"[^"]*[\\/]BluetoothAudioAuto\.ps1"|[^\s]*[\\/]BluetoothAudioAuto\.ps1)(?:\s|$)')
                 )
-            } |
-            ForEach-Object {
-                Invoke-CimMethod -InputObject $_ -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
             }
+        )
+
+        foreach ($copy in $copies) {
+            Invoke-CimMethod -InputObject $copy -MethodName Terminate -ErrorAction SilentlyContinue | Out-Null
+        }
+
+        # Terminate is asynchronous. Do not let the replacement instance race
+        # the previous process for the single-instance mutex.
+        foreach ($copy in $copies) {
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+                if (-not (Get-Process -Id $copy.ProcessId -ErrorAction SilentlyContinue)) {
+                    break
+                }
+                Start-Sleep -Milliseconds 100
+            }
+        }
     } catch {}
 }
 
@@ -1090,15 +1105,11 @@ public sealed class Hs5HidReader : IDisposable
             }
             else
             {
+                // BAS-HS5-FALLBACK-V2
+                // Report the link-down event here. The PowerShell loop chooses
+                // the fallback because it has the live Bluetooth state.
                 IsConnected = false;
                 LastSwitchSucceeded = false;
-                if (!String.IsNullOrWhiteSpace(FallbackEndpointId) &&
-                    (bool)isEndpointActive.Invoke(null, new object[] { FallbackEndpointId }))
-                {
-                    LastSwitchSucceeded = (bool)setDefaultEndpoint.Invoke(
-                        null,
-                        new object[] { FallbackEndpointId });
-                }
             }
         }
         catch
@@ -1189,6 +1200,48 @@ function Get-Hs5RenderEndpointId {
         return ([string]$endpoint.InstanceId).Substring('SWD\MMDEVAPI\'.Length)
     } catch {
         Write-Log ("HS5 render endpoint discovery failed: " + $_.Exception.Message)
+        return $null
+    }
+}
+
+function Get-BuiltinSpeakerEndpointId {
+    try {
+        $candidates = @(
+            Get-PnpDevice -Class AudioEndpoint -PresentOnly -ErrorAction Stop |
+            Where-Object {
+                $_.Status -eq 'OK' -and
+                $_.InstanceId -match '(?i)^SWD\\MMDEVAPI\\\{0\.0\.0\.' -and
+                $_.FriendlyName -notmatch '(?i)DP-HS-1015|Bluetooth|HDMI|Display Audio|NVIDIA|AMD High Definition|headphones|headset|наушники'
+            }
+        )
+
+        if ($candidates.Count -eq 0) {
+            return $null
+        }
+
+        $scored = foreach ($endpoint in $candidates) {
+            $name = [string]$endpoint.FriendlyName
+            $score = 0
+
+            if ($name -match '(?i)Speakers|Speaker|Динамики') { $score += 1000 }
+            if ($name -match '(?i)Realtek|Conexant|SmartAmp|Synaptics|Cirrus') { $score += 200 }
+            if ($name -match '(?i)USB') { $score -= 150 }
+
+            [pscustomobject]@{
+                Endpoint = $endpoint
+                Score = $score
+            }
+        }
+
+        $best = @($scored | Sort-Object Score -Descending | Select-Object -First 1)
+        if ($best.Count -eq 0 -or $best[0].Score -le 0) {
+            return $null
+        }
+
+        return ([string]$best[0].Endpoint.InstanceId).Substring('SWD\\MMDEVAPI\\'.Length)
+    }
+    catch {
+        Write-Log ("Built-in speaker discovery failed: " + $_.Exception.Message)
         return $null
     }
 }
@@ -1491,7 +1544,7 @@ function Request-BluetoothReconnect($Devices) {
     return $null
 }
 
-Write-Log "Started. v0.2.0 + DP-HS-1015 HID"
+Write-Log "Started. v0.3.1 + DP-HS-1015 HID"
 
 $hs5Reader = $null
 $hs5Connected = $false
@@ -1564,7 +1617,9 @@ foreach ($d in $all) {
 $currentDefault = [BtAudioNative]::GetDefaultRenderEndpointId()
 $fallbackEndpointId = $null
 
-if ($currentDefault -and -not $allBtIds.ContainsKey([string]$currentDefault)) {
+if ($currentDefault -and
+    [string]$currentDefault -ne [string]$hs5EndpointId -and
+    -not $allBtIds.ContainsKey([string]$currentDefault)) {
     $fallbackEndpointId = [string]$currentDefault
 }
 
@@ -1743,16 +1798,37 @@ while ($true) {
             }
         }
         else {
-            # No Bluetooth audio remains: restore the previous non-Bluetooth output.
-            if (-not $hs5Connected -and $previousActiveGroups.Count -gt 0 -and $fallbackEndpointId) {
-                if ([BtAudioNative]::IsEndpointActive($fallbackEndpointId)) {
+            # No Bluetooth audio remains. Restore the previous output, or find
+            # the built-in speakers when the previous output was not captured.
+            if (-not $hs5Connected -and ($hs5DisconnectedThisPass -or $previousActiveGroups.Count -gt 0)) {
+                $restoredFallback = $false
+
+                if ($fallbackEndpointId -and
+                    [string]$fallbackEndpointId -ne [string]$hs5EndpointId -and
+                    [BtAudioNative]::IsEndpointActive($fallbackEndpointId)) {
                     [void][BtAudioNative]::SetDefaultRenderEndpoint($fallbackEndpointId)
-                    Write-Log "Bluetooth audio disconnected. Restored previous output."
+                    Write-Log "External audio disconnected. Restored previous active output."
+                    $restoredFallback = $true
+                }
+
+                if (-not $restoredFallback) {
+                    $speakerEndpointId = Get-BuiltinSpeakerEndpointId
+                    if ($speakerEndpointId -and [BtAudioNative]::IsEndpointActive($speakerEndpointId)) {
+                        [void][BtAudioNative]::SetDefaultRenderEndpoint($speakerEndpointId)
+                        $fallbackEndpointId = [string]$speakerEndpointId
+                        Write-Log "No active external audio remains. Switched to built-in speakers."
+                    }
+                    else {
+                        Write-Log "No active external audio remains, but built-in speakers were not found."
+                    }
                 }
             }
 
             $defaultNow = [BtAudioNative]::GetDefaultRenderEndpointId()
-            if (-not $hs5Connected -and $defaultNow -and -not $allBtIdsNow.ContainsKey([string]$defaultNow)) {
+            if (-not $hs5Connected -and
+                $defaultNow -and
+                [string]$defaultNow -ne [string]$hs5EndpointId -and
+                -not $allBtIdsNow.ContainsKey([string]$defaultNow)) {
                 $fallbackEndpointId = [string]$defaultNow
             }
 
