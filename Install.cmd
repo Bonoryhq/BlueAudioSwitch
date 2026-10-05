@@ -9,6 +9,22 @@ if errorlevel 1 (
   exit /b 1
 )
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0BlueAudioSwitch.ps1" -Install
+if errorlevel 1 (
+  echo.
+  echo BlueAudioSwitch installation failed.
+  echo The startup registration was not confirmed.
+  pause
+  exit /b 1
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$entry = (Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'BlueAudioSwitch' -ErrorAction SilentlyContinue).BlueAudioSwitch; if ([string]::IsNullOrWhiteSpace($entry)) { exit 1 }"
+if errorlevel 1 (
+  echo.
+  echo Installation ran, but BlueAudioSwitch is missing from Windows startup.
+  echo Run Install.cmd again and check for errors.
+  pause
+  exit /b 1
+)
 echo.
 echo Installation complete.
+echo Windows startup registration verified.
 pause >nul
